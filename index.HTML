@@ -1,0 +1,566 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+  <title>Motionverse AR</title>
+  
+  <!-- Tailwind CSS -->
+  <script src="https://cdn.tailwindcss.com"></script>
+  
+  <!-- MediaPipe -->
+  <!-- 안정성을 위해 CDN을 jsdelivr로 변경 (한국 모바일 환경에서 종종 더 빠릅니다) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+
+  <style>
+    body { margin: 0; overflow: hidden; background-color: #0a0a0a; color: #ecfeff; font-family: sans-serif; }
+    .bg-grid {
+      background-image: linear-gradient(rgba(0,255,255,0.03) 1px, transparent 1px), linear-gradient(90deg, rgba(0,255,255,0.03) 1px, transparent 1px);
+      background-size: 40px 40px;
+    }
+    .hidden-screen { display: none !important; }
+  </style>
+</head>
+<body class="selection:bg-cyan-500/30">
+
+  <!-- Background Layer -->
+  <div class="absolute inset-0 bg-grid pointer-events-none z-0"></div>
+  <div class="absolute inset-0 bg-gradient-to-b from-transparent via-cyan-900/10 to-neutral-950 pointer-events-none z-0"></div>
+
+  <!-- Header -->
+  <header class="absolute top-0 left-0 right-0 p-4 flex justify-between items-center z-50 pointer-events-none">
+    <div class="text-xl font-bold tracking-widest text-cyan-400 drop-shadow-[0_0_8px_rgba(34,211,238,0.8)] pointer-events-auto">
+      M-VERSE<span class="text-pink-500">.AR</span>
+    </div>
+    <button id="btn-lang" class="px-3 py-1 border border-cyan-500/50 rounded-full text-xs font-mono hover:bg-cyan-500/20 transition-colors pointer-events-auto">KO</button>
+  </header>
+
+  <!-- [Screen 1] Menu -->
+  <div id="screen-menu" class="flex flex-col items-center justify-center h-screen z-10 relative">
+    <h1 class="text-5xl md:text-7xl font-black mb-2 text-transparent bg-clip-text bg-gradient-to-r from-cyan-400 to-pink-500 drop-shadow-[0_0_15px_rgba(34,211,238,0.5)]" data-i18n="title">MOTIONVERSE</h1>
+    <p class="text-cyan-200 tracking-[0.3em] mb-12 text-sm md:text-base uppercase" data-i18n="subtitle">Global AR Edition</p>
+    
+    <div id="loading-indicator" class="flex items-center space-x-3 text-cyan-400 animate-pulse">
+      <div class="w-5 h-5 border-2 border-cyan-400 border-t-transparent rounded-full animate-spin"></div>
+      <span data-i18n="loading">뉴럴 엔진 초기화 중...</span>
+    </div>
+
+    <button id="btn-play" class="hidden-screen px-8 py-4 bg-cyan-500/10 border border-cyan-400 rounded hover:bg-cyan-400 hover:text-neutral-900 transition-all duration-300 font-bold tracking-wider hover:shadow-[0_0_20px_rgba(34,211,238,0.6)] group relative overflow-hidden">
+      <span class="relative z-10" data-i18n="play">시스템 가동</span>
+      <div class="absolute inset-0 bg-cyan-400 translate-y-full group-hover:translate-y-0 transition-transform duration-300 ease-out"></div>
+    </button>
+  </div>
+
+  <!-- [Screen 2] Select Mode -->
+  <div id="screen-select" class="hidden-screen flex flex-col items-center justify-center h-screen z-10 relative px-4 w-full max-w-5xl mx-auto">
+    <h2 class="text-2xl font-bold mb-8 text-cyan-300" data-i18n="selectMode">시뮬레이션 모드 선택</h2>
+    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 w-full" id="mode-grid">
+      <!-- Buttons injected by JS -->
+    </div>
+    <button id="btn-back-menu" class="mt-8 text-neutral-500 hover:text-cyan-400 text-sm font-mono transition-colors">
+      &lt; <span data-i18n="mainMenu">메인 메뉴</span>
+    </button>
+  </div>
+
+  <!-- [Screen 3] Tutorial -->
+  <div id="screen-tutorial" class="hidden-screen absolute inset-0 bg-neutral-950/80 backdrop-blur-md flex flex-col items-center justify-center z-30 p-4">
+    <div class="max-w-md w-full bg-neutral-900 border border-cyan-800 rounded-2xl p-8 shadow-[0_0_50px_rgba(34,211,238,0.1)] text-center">
+      <div class="text-pink-500 font-mono mb-2 uppercase tracking-widest" data-i18n="tutorial">튜토리얼</div>
+      <h2 id="tutorial-title" class="text-3xl font-bold text-cyan-400 mb-6">Mode Name</h2>
+      <div class="bg-neutral-950 rounded-xl p-6 mb-8 border border-neutral-800">
+        <p id="tutorial-desc" class="text-neutral-300 leading-relaxed text-lg">Mode Desc</p>
+      </div>
+      <div class="flex justify-between items-center w-full space-x-4">
+        <button id="btn-back-select" class="px-4 py-3 text-neutral-400 hover:text-white transition-colors">&lt; Back</button>
+        <button id="btn-start-game" class="flex-1 px-6 py-3 bg-cyan-500 text-neutral-950 font-bold rounded-lg hover:bg-cyan-400 hover:shadow-[0_0_20px_rgba(34,211,238,0.6)] transition-all" data-i18n="start">시작하기</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- [Screen 4] Playing Layer (Canvas & HUD) -->
+  <div id="screen-playing" class="hidden-screen absolute inset-0 z-20 pointer-events-none">
+    <div class="absolute top-20 left-0 right-0 px-8 flex justify-between items-start">
+      <div class="flex flex-col">
+        <span class="text-cyan-500 font-mono text-sm tracking-widest" data-i18n="score">스코어</span>
+        <span id="ui-score" class="text-4xl font-bold text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]">0</span>
+      </div>
+      
+      <!-- 일시정지 버튼 -->
+      <div class="flex flex-col items-center pointer-events-auto">
+        <button id="btn-pause" class="px-5 py-2 bg-neutral-900/60 border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500 hover:text-neutral-900 transition-all backdrop-blur-sm font-bold tracking-wider" data-i18n="pause">
+          멈춤 ⏸
+        </button>
+      </div>
+
+      <div class="flex flex-col items-end">
+        <span class="text-pink-500 font-mono text-sm tracking-widest" data-i18n="time">남은 시간</span>
+        <span id="ui-time" class="text-4xl font-bold text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.8)] transition-colors">00:60</span>
+      </div>
+    </div>
+  </div>
+
+  <!-- Screen Pause (일시정지 화면) -->
+  <div id="screen-pause" class="hidden-screen absolute inset-0 bg-neutral-950/80 backdrop-blur-md flex flex-col items-center justify-center z-50 p-4">
+    <h2 class="text-5xl font-black text-cyan-400 mb-2 tracking-wider" data-i18n="pause">일시정지</h2>
+    <p class="text-cyan-200/50 tracking-widest mb-12 text-sm uppercase">Simulation Paused</p>
+    
+    <div class="flex flex-col space-y-4 min-w-[240px]">
+      <button id="btn-resume" class="px-8 py-4 bg-cyan-500 text-neutral-950 font-bold rounded-lg hover:bg-cyan-400 hover:shadow-[0_0_20px_rgba(34,211,238,0.6)] transition-all" data-i18n="resume">계속하기 ▶</button>
+      <button id="btn-quit" class="px-8 py-4 bg-transparent border border-pink-500/50 text-pink-400 font-bold rounded-lg hover:bg-pink-500 hover:text-neutral-900 hover:border-pink-500 transition-all" data-i18n="quit">종료 및 나가기</button>
+    </div>
+  </div>
+
+  <!-- [Screen 5] Result -->
+  <div id="screen-result" class="hidden-screen absolute inset-0 bg-neutral-950/90 backdrop-blur-xl flex flex-col items-center justify-center z-40 p-4">
+    <h2 class="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-pink-500 to-purple-500 mb-4 text-center" data-i18n="gameOver">시뮬레이션 완료</h2>
+    <div class="text-cyan-400 font-mono tracking-widest mb-12 text-center">
+      SIMULATION SCORE<br/>
+      <span id="result-score" class="text-white text-7xl block mt-4 font-bold">0</span>
+    </div>
+    <div class="flex flex-col space-y-4 min-w-[200px]">
+      <button id="btn-restart" class="px-8 py-4 bg-cyan-500 text-neutral-950 font-bold rounded-lg hover:bg-cyan-400 hover:shadow-[0_0_20px_rgba(34,211,238,0.6)] transition-all" data-i18n="restart">재시작</button>
+      <button id="btn-result-menu" class="px-8 py-4 bg-transparent border border-neutral-700 text-neutral-300 font-bold rounded-lg hover:border-cyan-500 hover:text-cyan-400 transition-all" data-i18n="mainMenu">메인 메뉴</button>
+    </div>
+  </div>
+
+  <!-- [CRITICAL FIX] Video 태그에 autoplay, muted 속성 추가 (모바일 백그라운드 영상 처리 필수 요건) -->
+  <video id="video-element" class="hidden" autoplay playsinline muted></video>
+  <canvas id="game-canvas" class="absolute inset-0 w-full h-full object-cover z-10 pointer-events-none opacity-0 transition-opacity duration-1000"></canvas>
+
+  <script>
+    // --- [1] 다국어 (I18n) 데이터 ---
+    const translations = {
+      ko: {
+        title: "MOTIONVERSE", subtitle: "Global AR Edition", play: "시스템 가동",
+        selectMode: "시뮬레이션 모드 선택", score: "스코어", time: "남은 시간",
+        loading: "비전 모델 로드 중...", tutorial: "튜토리얼", start: "시작하기",
+        gameOver: "시뮬레이션 완료", restart: "재시작", mainMenu: "메인 메뉴",
+        pause: "일시정지", resume: "계속하기", quit: "나가기",
+        modes: [
+          { name: "Boxing Blitz", desc: "주먹을 쥐고 나타나는 타겟을 빠르게 타격하세요!" },
+          { name: "Cyber Shield", desc: "손바닥을 쫙 펴서 방어막을 전개하고 투사체를 막으세요." },
+          { name: "Zen Flow", desc: "검지 손가락 끝으로 빛나는 구체의 궤적을 따라가세요." },
+          { name: "Star Catcher", desc: "떨어지는 별 근처에서 손을 쥐어 채집하세요." },
+          { name: "Pose Master", desc: "화면에 지시된 손 모양(가위, 바위, 보)을 빠르게 취하세요." },
+          { name: "Sonic Slasher", desc: "검지를 빠르게 휘둘러 검기를 날려 타겟을 베어버리세요." }
+        ]
+      },
+      en: {
+        title: "MOTIONVERSE", subtitle: "Global AR Edition", play: "Initialize System",
+        selectMode: "Select Simulation Mode", score: "Score", time: "Time Left",
+        loading: "Loading Vision Model...", tutorial: "Tutorial", start: "Start",
+        gameOver: "Simulation Complete", restart: "Restart", mainMenu: "Main Menu",
+        pause: "Pause", resume: "Resume", quit: "Quit",
+        modes: [
+          { name: "Boxing Blitz", desc: "Make a fist and punch the targets quickly!" },
+          { name: "Cyber Shield", desc: "Open your hand fully to deploy a shield and block projectiles." },
+          { name: "Zen Flow", desc: "Follow the glowing orb with your index finger tip." },
+          { name: "Star Catcher", desc: "Close your hand near the falling stars to catch them." },
+          { name: "Pose Master", desc: "Quickly match the hand gesture (Rock, Paper, Scissors) shown." },
+          { name: "Sonic Slasher", desc: "Swipe your index finger fast to slash the targets." }
+        ]
+      }
+    };
+
+    // --- [2] 전역 상태 및 DOM 참조 ---
+    let appState = 'menu'; 
+    let isPaused = false; 
+    let currentLang = 'ko';
+    let selectedMode = 0;
+    let score = 0;
+    let timeLeft = 60;
+    let timerInterval = null;
+
+    const gameData = {
+      entities: [], particles: [], slasherTrail: [],
+      scoreAcc: 0, poseTarget: 'rock', poseTimer: 0
+    };
+
+    const screens = {
+      menu: document.getElementById('screen-menu'),
+      select: document.getElementById('screen-select'),
+      tutorial: document.getElementById('screen-tutorial'),
+      playing: document.getElementById('screen-playing'),
+      pause: document.getElementById('screen-pause'), 
+      result: document.getElementById('screen-result')
+    };
+
+    const ui = {
+      score: document.getElementById('ui-score'),
+      time: document.getElementById('ui-time'),
+      resultScore: document.getElementById('result-score'),
+      canvas: document.getElementById('game-canvas'),
+      video: document.getElementById('video-element')
+    };
+    const ctx = ui.canvas.getContext('2d');
+
+    // --- [3] UI 컨트롤 및 I18n 로직 ---
+    function switchScreen(newState) {
+      appState = newState;
+      Object.values(screens).forEach(el => el.classList.add('hidden-screen'));
+      if (screens[newState]) screens[newState].classList.remove('hidden-screen');
+      
+      if (newState === 'playing' || newState === 'result' || newState === 'tutorial' || newState === 'pause') {
+        ui.canvas.classList.remove('opacity-0');
+      } else {
+        ui.canvas.classList.add('opacity-0');
+      }
+    }
+
+    function applyTranslations() {
+      const t = translations[currentLang];
+      document.querySelectorAll('[data-i18n]').forEach(el => {
+        const key = el.getAttribute('data-i18n');
+        if (t[key]) el.innerText = t[key];
+      });
+      document.getElementById('btn-lang').innerText = currentLang.toUpperCase();
+      renderModeGrid();
+      
+      if(appState === 'tutorial') {
+        document.getElementById('tutorial-title').innerText = t.modes[selectedMode].name;
+        document.getElementById('tutorial-desc').innerText = t.modes[selectedMode].desc;
+      }
+    }
+
+    function toggleLang() {
+      currentLang = currentLang === 'ko' ? 'en' : 'ko';
+      applyTranslations();
+    }
+
+    function renderModeGrid() {
+      const grid = document.getElementById('mode-grid');
+      grid.innerHTML = '';
+      const t = translations[currentLang];
+      
+      t.modes.forEach((mode, idx) => {
+        const btn = document.createElement('button');
+        btn.className = "p-6 text-left border border-cyan-800 bg-neutral-900/50 rounded-xl hover:border-cyan-400 hover:bg-cyan-950 transition-all group backdrop-blur-sm";
+        btn.innerHTML = `
+          <div class="text-pink-500 font-mono text-sm mb-2">MODE ${idx + 1}</div>
+          <h3 class="text-xl font-bold text-cyan-50 group-hover:text-cyan-300 mb-2">${mode.name}</h3>
+          <p class="text-neutral-400 text-sm">${mode.desc}</p>
+        `;
+        btn.onclick = () => {
+          selectedMode = idx;
+          document.getElementById('tutorial-title').innerText = mode.name;
+          document.getElementById('tutorial-desc').innerText = mode.desc;
+          switchScreen('tutorial');
+        };
+        grid.appendChild(btn);
+      });
+    }
+
+    document.getElementById('btn-lang').onclick = toggleLang;
+    document.getElementById('btn-play').onclick = () => switchScreen('select');
+    document.getElementById('btn-back-menu').onclick = () => switchScreen('menu');
+    document.getElementById('btn-back-select').onclick = () => switchScreen('select');
+    document.getElementById('btn-result-menu').onclick = () => switchScreen('select');
+    document.getElementById('btn-start-game').onclick = startGame;
+    document.getElementById('btn-restart').onclick = startGame;
+
+    document.getElementById('btn-pause').onclick = () => {
+      isPaused = true;
+      screens.pause.classList.remove('hidden-screen');
+    };
+    document.getElementById('btn-resume').onclick = () => {
+      isPaused = false;
+      screens.pause.classList.add('hidden-screen');
+    };
+    document.getElementById('btn-quit').onclick = () => {
+      isPaused = false;
+      clearInterval(timerInterval);
+      screens.pause.classList.add('hidden-screen');
+      switchScreen('select'); 
+    };
+
+    function startGame() {
+      gameData.entities = [];
+      gameData.particles = [];
+      gameData.slasherTrail = [];
+      gameData.scoreAcc = 0;
+      gameData.poseTimer = 0;
+      score = 0;
+      timeLeft = 60;
+      isPaused = false; 
+      screens.pause.classList.add('hidden-screen');
+      
+      ui.score.innerText = '0';
+      ui.time.innerText = '00:60';
+      ui.time.classList.remove('text-red-500', 'animate-pulse');
+      
+      switchScreen('playing');
+      
+      clearInterval(timerInterval);
+      timerInterval = setInterval(() => {
+        if (!isPaused) { 
+          timeLeft--;
+          if (timeLeft <= 10) ui.time.classList.add('text-red-500', 'animate-pulse');
+          ui.time.innerText = `00:${timeLeft.toString().padStart(2, '0')}`;
+          
+          if (timeLeft <= 0) {
+            clearInterval(timerInterval);
+            endGame();
+          }
+        }
+      }, 1000);
+    }
+
+    function endGame() {
+      ui.resultScore.innerText = score;
+      switchScreen('result');
+    }
+
+    // --- [4] 제스처 인식 수학 유틸리티 ---
+    const getDistance = (p1, p2) => Math.hypot(p1.x - p2.x, p1.y - p2.y);
+    const analyzeGesture = (landmarks) => {
+      if (!landmarks) return { isFist: false, isOpen: false, gesture: 'unknown' };
+      const wrist = landmarks[0];
+      const isFingerOpen = (tipIdx, mcpIdx) => getDistance(wrist, landmarks[tipIdx]) > getDistance(wrist, landmarks[mcpIdx]) * 1.3;
+      
+      const fingers = {
+        thumb: isFingerOpen(4, 2), index: isFingerOpen(8, 5),
+        middle: isFingerOpen(12, 9), ring: isFingerOpen(16, 13), pinky: isFingerOpen(20, 17),
+      };
+
+      const openCount = Object.values(fingers).filter(Boolean).length;
+      const isFist = openCount <= 1;
+      const isOpen = openCount >= 4;
+      const isV = fingers.index && fingers.middle && !fingers.ring && !fingers.pinky;
+
+      let gesture = 'unknown';
+      if (isFist) gesture = 'rock';
+      else if (isOpen) gesture = 'paper';
+      else if (isV) gesture = 'scissors';
+
+      return { isFist, isOpen, isV, gesture, indexTip: landmarks[8], center: landmarks[9] };
+    };
+
+    function createParticles(x, y, color) {
+      for (let i = 0; i < 10; i++) {
+        gameData.particles.push({
+          x, y, vx: (Math.random() - 0.5) * 10, vy: (Math.random() - 0.5) * 10, life: 20, color
+        });
+      }
+    }
+
+    // --- [5] 핵심 게임 엔진 (렌더링 루프) ---
+    function updateGameLogic(landmarks) {
+      const width = ui.canvas.width;
+      const height = ui.canvas.height;
+      const dt = 16;
+      const state = gameData;
+
+      // 제스처 분석
+      let handData = null;
+      if (landmarks && landmarks.length > 0) {
+        const mappedLandmarks = landmarks[0].map(lm => ({ x: (1 - lm.x) * width, y: lm.y * height }));
+        handData = analyzeGesture(mappedLandmarks);
+        
+        // [NEW UX] 모바일에서 인식 여부를 즉시 알 수 있도록 투명한 핑크색 관절 뼈대(Skeleton) 그리기
+        ctx.strokeStyle = 'rgba(236, 72, 153, 0.5)'; // 핑크색
+        ctx.lineWidth = 3;
+        const connections = [
+            [0,1],[1,2],[2,3],[3,4], // 엄지
+            [0,5],[5,6],[6,7],[7,8], // 검지
+            [5,9],[9,10],[10,11],[11,12], // 중지
+            [9,13],[13,14],[14,15],[15,16], // 약지
+            [13,17],[17,18],[18,19],[19,20], // 새끼
+            [0,17] // 손바닥 아래
+        ];
+        ctx.beginPath();
+        connections.forEach(([p1, p2]) => {
+            ctx.moveTo(mappedLandmarks[p1].x, mappedLandmarks[p1].y);
+            ctx.lineTo(mappedLandmarks[p2].x, mappedLandmarks[p2].y);
+        });
+        ctx.stroke();
+
+        // 손바닥 중심점
+        ctx.fillStyle = 'rgba(34, 211, 238, 0.8)';
+        ctx.beginPath();
+        ctx.arc(handData.center.x, handData.center.y, 10, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      if (appState === 'playing' || appState === 'pause') { 
+        if (!isPaused) {
+          switch (selectedMode) {
+            case 0:
+              if (Math.random() < 0.03 && state.entities.length < 5) {
+                state.entities.push({ x: Math.random() * (width - 100) + 50, y: Math.random() * (height - 100) + 50, radius: 30, life: 100, color: '#f43f5e' });
+              }
+              break;
+            case 1:
+              if (Math.random() < 0.05) state.entities.push({ x: Math.random() * width, y: -20, radius: 10, speed: Math.random() * 3 + 2, color: '#eab308' });
+              break;
+            case 2:
+              if (state.entities.length === 0) {
+                state.entities.push({ x: width/2, y: height/2, angle: 0, radius: 40 });
+              } else {
+                const orb = state.entities[0];
+                orb.angle += 0.02; orb.x = width/2 + Math.cos(orb.angle) * (width/3); orb.y = height/2 + Math.sin(orb.angle * 2) * (height/4);
+              }
+              break;
+            case 3:
+              if (Math.random() < 0.04) state.entities.push({ x: Math.random() * width, y: -20, radius: 15, speed: Math.random() * 2 + 1, color: '#2dd4bf' });
+              break;
+            case 4:
+              state.poseTimer -= dt;
+              if (state.poseTimer <= 0) {
+                const poses = ['rock', 'paper', 'scissors'];
+                state.poseTarget = poses[Math.floor(Math.random() * poses.length)];
+                state.poseTimer = 3000;
+              }
+              break;
+            case 5:
+              if (Math.random() < 0.04) state.entities.push({ x: Math.random() > 0.5 ? -20 : width + 20, y: Math.random() * (height/2) + height/4, vx: (Math.random() > 0.5 ? 1 : -1) * (Math.random() * 4 + 2), vy: -Math.random() * 5, radius: 20, color: '#a855f7' });
+              if (handData && handData.indexTip) state.slasherTrail.push({x: handData.indexTip.x, y: handData.indexTip.y, age: 0});
+              state.slasherTrail = state.slasherTrail.filter(p => p.age < 15);
+              state.slasherTrail.forEach(p => p.age++);
+              break;
+          }
+        }
+
+        if (selectedMode === 4) {
+          ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'; ctx.font = '80px Arial'; ctx.textAlign = 'center';
+          ctx.fillText(state.poseTarget === 'rock' ? '✊' : state.poseTarget === 'paper' ? '🖐' : '✌️', width/2, height/2);
+        }
+
+        for (let i = state.entities.length - 1; i >= 0; i--) {
+          let ent = state.entities[i];
+          let remove = false;
+
+          if (!isPaused) {
+            if (selectedMode === 1 || selectedMode === 3) ent.y += ent.speed;
+            if (selectedMode === 5) { ent.x += ent.vx; ent.y += ent.vy; ent.vy += 0.1; }
+            if (selectedMode === 0) { ent.life--; if (ent.life <= 0) remove = true; }
+            if (ent.y > height + 50 || ent.x < -50 || ent.x > width + 50) remove = true;
+          }
+
+          ctx.beginPath(); ctx.arc(ent.x, ent.y, ent.radius, 0, Math.PI * 2);
+          ctx.fillStyle = ent.color || '#fff'; ctx.shadowBlur = 15; ctx.shadowColor = ent.color || '#fff';
+          ctx.fill(); ctx.shadowBlur = 0;
+
+          if (!isPaused && handData) {
+            if (selectedMode === 0 && handData.isFist && getDistance(ent, handData.center) < ent.radius + 30) {
+              remove = true; state.scoreAcc += 10; createParticles(ent.x, ent.y, ent.color);
+            }
+            if (selectedMode === 1 && handData.isOpen) {
+              ctx.beginPath(); ctx.arc(handData.center.x, handData.center.y, 80, 0, Math.PI*2);
+              ctx.strokeStyle = '#22d3ee'; ctx.lineWidth = 4; ctx.stroke();
+              ctx.fillStyle = 'rgba(34, 211, 238, 0.2)'; ctx.fill();
+              if (getDistance(ent, handData.center) < 80 + ent.radius) { remove = true; state.scoreAcc += 5; createParticles(ent.x, ent.y, ent.color); }
+            }
+            if (selectedMode === 2 && handData.indexTip && getDistance(ent, handData.indexTip) < ent.radius + 20) {
+              state.scoreAcc += 0.5; ctx.beginPath(); ctx.arc(ent.x, ent.y, ent.radius + 10, 0, Math.PI*2); ctx.strokeStyle = '#22d3ee'; ctx.stroke();
+            }
+            if (selectedMode === 3 && handData.isFist && getDistance(ent, handData.center) < ent.radius + 60) {
+              remove = true; state.scoreAcc += 15; createParticles(ent.x, ent.y, ent.color);
+            }
+            if (selectedMode === 5 && state.slasherTrail.length > 2) {
+              ctx.beginPath(); ctx.moveTo(state.slasherTrail[0].x, state.slasherTrail[0].y);
+              for(let j=1; j<state.slasherTrail.length; j++) ctx.lineTo(state.slasherTrail[j].x, state.slasherTrail[j].y);
+              ctx.strokeStyle = '#f472b6'; ctx.lineWidth = 5; ctx.stroke();
+              if (state.slasherTrail.some(p => getDistance(p, ent) < ent.radius + 10)) { remove = true; state.scoreAcc += 20; createParticles(ent.x, ent.y, ent.color); }
+            }
+          }
+          if (!isPaused && remove) state.entities.splice(i, 1);
+        }
+
+        if (!isPaused && selectedMode === 4 && handData && handData.gesture === state.poseTarget) {
+          state.scoreAcc += 30; state.poseTimer = 0; createParticles(handData.center.x, handData.center.y, '#22d3ee');
+        }
+
+        if (!isPaused && Math.floor(state.scoreAcc) > score) {
+          score = Math.floor(state.scoreAcc);
+          ui.score.innerText = score;
+        }
+      }
+
+      for (let i = state.particles.length - 1; i >= 0; i--) {
+        let p = state.particles[i];
+        if (!isPaused) { p.x += p.vx; p.y += p.vy; p.life--; } 
+        ctx.globalAlpha = p.life / 20; ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 4, 4);
+        if (!isPaused && p.life <= 0) state.particles.splice(i, 1);
+      }
+      ctx.globalAlpha = 1.0;
+    }
+
+    // --- [6] MediaPipe 초기화 ---
+    function initVisionModel() {
+      if (!window.Hands || !window.Camera) {
+        setTimeout(initVisionModel, 500); 
+        return;
+      }
+
+      const hands = new window.Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
+      });
+
+      // [CRITICAL FIX] 모바일 최적화를 위해 modelComplexity를 0(Lite)로 낮춤
+      hands.setOptions({
+        maxNumHands: 2,
+        modelComplexity: 0, // 1에서 0으로 하향 조정하여 모바일 호환성/속도 극대화
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
+      });
+
+      hands.onResults((results) => {
+        if (ui.canvas.width !== ui.video.videoWidth) {
+          ui.canvas.width = ui.video.videoWidth;
+          ui.canvas.height = ui.video.videoHeight;
+        }
+
+        ctx.save();
+        ctx.clearRect(0, 0, ui.canvas.width, ui.canvas.height);
+        
+        ctx.translate(ui.canvas.width, 0);
+        ctx.scale(-1, 1);
+        ctx.drawImage(results.image, 0, 0, ui.canvas.width, ui.canvas.height);
+        
+        ctx.fillStyle = 'rgba(0,0,0,0.5)';
+        ctx.fillRect(0, 0, ui.canvas.width, ui.canvas.height);
+        ctx.restore();
+
+        if(ui.canvas.width > 0) {
+            updateGameLogic(results.multiHandLandmarks);
+        }
+      });
+
+      // [CRITICAL FIX] 모바일 세로/가로 자동 대응을 위해 width/height 강제 고정 제거, 전면 카메라 명시
+      const camera = new window.Camera(ui.video, {
+        onFrame: async () => { 
+          try {
+            await hands.send({ image: ui.video }); 
+          } catch(e) {
+            console.error("Frame parsing error:", e);
+          }
+        },
+        facingMode: 'user' // width: 640, height: 480 제거 (비율 찌그러짐 방지)
+      });
+
+      camera.start().then(() => {
+        document.getElementById('loading-indicator').classList.add('hidden-screen');
+        document.getElementById('btn-play').classList.remove('hidden-screen');
+      }).catch(err => {
+        document.getElementById('loading-indicator').innerHTML = `
+          <div class="text-red-400 text-center flex flex-col items-center space-y-3 bg-neutral-900/80 p-6 rounded-xl border border-red-500/50">
+            <span class="text-xl font-bold">⚠️ 카메라 접근 차단됨</span>
+            <span class="text-sm text-neutral-300 leading-relaxed">
+              보안 정책으로 인해 현재 환경에서 카메라를 켤 수 없습니다.<br/>
+              (카카오톡 인앱 브라우저 또는 로컬 파일 실행)
+            </span>
+            <div class="text-sm text-cyan-300 mt-2 bg-cyan-900/30 px-4 py-3 rounded-lg border border-cyan-800">
+              <b>해결 방법:</b><br/>
+              1. 파일을 Vercel, GitHub 등 <b>HTTPS 서버에 호스팅</b> 해주세요.<br/>
+              2. 우측 상단 메뉴(⋮)에서 <b>'다른 브라우저로 열기(Chrome/Safari)'</b>를 선택해 주세요.
+            </div>
+          </div>`;
+      });
+    }
+
+    applyTranslations();
+    window.addEventListener('DOMContentLoaded', initVisionModel);
+  </script>
+</body>
+</html>
