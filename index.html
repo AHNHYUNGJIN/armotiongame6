@@ -9,8 +9,9 @@
   <script src="https://cdn.tailwindcss.com"></script>
   
   <!-- MediaPipe -->
-  <script src="https://unpkg.com/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
-  <script src="https://unpkg.com/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
+  <!-- 안정성을 위해 CDN을 jsdelivr로 변경 (한국 모바일 환경에서 종종 더 빠릅니다) -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js" crossorigin="anonymous"></script>
 
   <style>
     body { margin: 0; overflow: hidden; background-color: #0a0a0a; color: #ecfeff; font-family: sans-serif; }
@@ -85,7 +86,7 @@
         <span id="ui-score" class="text-4xl font-bold text-white drop-shadow-[0_0_10px_rgba(255,255,255,0.8)]">0</span>
       </div>
       
-      <!-- [NEW] 일시정지 버튼 추가 -->
+      <!-- 일시정지 버튼 -->
       <div class="flex flex-col items-center pointer-events-auto">
         <button id="btn-pause" class="px-5 py-2 bg-neutral-900/60 border border-cyan-500/50 rounded-lg text-cyan-400 hover:bg-cyan-500 hover:text-neutral-900 transition-all backdrop-blur-sm font-bold tracking-wider" data-i18n="pause">
           멈춤 ⏸
@@ -99,7 +100,7 @@
     </div>
   </div>
 
-  <!-- [NEW] Screen Pause (일시정지 화면) -->
+  <!-- Screen Pause (일시정지 화면) -->
   <div id="screen-pause" class="hidden-screen absolute inset-0 bg-neutral-950/80 backdrop-blur-md flex flex-col items-center justify-center z-50 p-4">
     <h2 class="text-5xl font-black text-cyan-400 mb-2 tracking-wider" data-i18n="pause">일시정지</h2>
     <p class="text-cyan-200/50 tracking-widest mb-12 text-sm uppercase">Simulation Paused</p>
@@ -123,8 +124,8 @@
     </div>
   </div>
 
-  <!-- Video & Canvas Element -->
-  <video id="video-element" class="hidden" playsinline></video>
+  <!-- [CRITICAL FIX] Video 태그에 autoplay, muted 속성 추가 (모바일 백그라운드 영상 처리 필수 요건) -->
+  <video id="video-element" class="hidden" autoplay playsinline muted></video>
   <canvas id="game-canvas" class="absolute inset-0 w-full h-full object-cover z-10 pointer-events-none opacity-0 transition-opacity duration-1000"></canvas>
 
   <script>
@@ -163,8 +164,8 @@
     };
 
     // --- [2] 전역 상태 및 DOM 참조 ---
-    let appState = 'menu'; // menu, select, tutorial, playing, result
-    let isPaused = false; // [NEW] 일시정지 상태 플래그
+    let appState = 'menu'; 
+    let isPaused = false; 
     let currentLang = 'ko';
     let selectedMode = 0;
     let score = 0;
@@ -181,7 +182,7 @@
       select: document.getElementById('screen-select'),
       tutorial: document.getElementById('screen-tutorial'),
       playing: document.getElementById('screen-playing'),
-      pause: document.getElementById('screen-pause'), // [NEW] 
+      pause: document.getElementById('screen-pause'), 
       result: document.getElementById('screen-result')
     };
 
@@ -250,32 +251,27 @@
       });
     }
 
-    // Event Listeners for Navigation
     document.getElementById('btn-lang').onclick = toggleLang;
     document.getElementById('btn-play').onclick = () => switchScreen('select');
     document.getElementById('btn-back-menu').onclick = () => switchScreen('menu');
     document.getElementById('btn-back-select').onclick = () => switchScreen('select');
     document.getElementById('btn-result-menu').onclick = () => switchScreen('select');
-    
     document.getElementById('btn-start-game').onclick = startGame;
     document.getElementById('btn-restart').onclick = startGame;
 
-    // [NEW] Pause & Quit Handlers
     document.getElementById('btn-pause').onclick = () => {
       isPaused = true;
       screens.pause.classList.remove('hidden-screen');
     };
-    
     document.getElementById('btn-resume').onclick = () => {
       isPaused = false;
       screens.pause.classList.add('hidden-screen');
     };
-
     document.getElementById('btn-quit').onclick = () => {
       isPaused = false;
       clearInterval(timerInterval);
       screens.pause.classList.add('hidden-screen');
-      switchScreen('select'); // 모드 선택 화면으로 복귀
+      switchScreen('select'); 
     };
 
     function startGame() {
@@ -286,7 +282,7 @@
       gameData.poseTimer = 0;
       score = 0;
       timeLeft = 60;
-      isPaused = false; // 게임 시작 시 일시정지 해제
+      isPaused = false; 
       screens.pause.classList.add('hidden-screen');
       
       ui.score.innerText = '0';
@@ -297,7 +293,7 @@
       
       clearInterval(timerInterval);
       timerInterval = setInterval(() => {
-        if (!isPaused) { // [NEW] 일시정지 상태가 아닐 때만 시간 차감
+        if (!isPaused) { 
           timeLeft--;
           if (timeLeft <= 10) ui.time.classList.add('text-red-500', 'animate-pulse');
           ui.time.innerText = `00:${timeLeft.toString().padStart(2, '0')}`;
@@ -361,16 +357,32 @@
         const mappedLandmarks = landmarks[0].map(lm => ({ x: (1 - lm.x) * width, y: lm.y * height }));
         handData = analyzeGesture(mappedLandmarks);
         
-        ctx.fillStyle = 'rgba(34, 211, 238, 0.5)';
+        // [NEW UX] 모바일에서 인식 여부를 즉시 알 수 있도록 투명한 핑크색 관절 뼈대(Skeleton) 그리기
+        ctx.strokeStyle = 'rgba(236, 72, 153, 0.5)'; // 핑크색
+        ctx.lineWidth = 3;
+        const connections = [
+            [0,1],[1,2],[2,3],[3,4], // 엄지
+            [0,5],[5,6],[6,7],[7,8], // 검지
+            [5,9],[9,10],[10,11],[11,12], // 중지
+            [9,13],[13,14],[14,15],[15,16], // 약지
+            [13,17],[17,18],[18,19],[19,20], // 새끼
+            [0,17] // 손바닥 아래
+        ];
+        ctx.beginPath();
+        connections.forEach(([p1, p2]) => {
+            ctx.moveTo(mappedLandmarks[p1].x, mappedLandmarks[p1].y);
+            ctx.lineTo(mappedLandmarks[p2].x, mappedLandmarks[p2].y);
+        });
+        ctx.stroke();
+
+        // 손바닥 중심점
+        ctx.fillStyle = 'rgba(34, 211, 238, 0.8)';
         ctx.beginPath();
         ctx.arc(handData.center.x, handData.center.y, 10, 0, Math.PI * 2);
         ctx.fill();
       }
 
-      // 게임 플레이 상태일 때만 로직/엔티티 생성 적용
       if (appState === 'playing' || appState === 'pause') { 
-        
-        // [NEW] 일시정지가 아닐 때만 게임 요소(생성, 이동, 충돌) 업데이트 수행
         if (!isPaused) {
           switch (selectedMode) {
             case 0:
@@ -407,9 +419,8 @@
               state.slasherTrail.forEach(p => p.age++);
               break;
           }
-        } // !isPaused 끝
+        }
 
-        // 화면 렌더링 (일시정지 중에도 기존 화면은 그대로 그리기 위함)
         if (selectedMode === 4) {
           ctx.fillStyle = 'rgba(255, 255, 255, 0.2)'; ctx.font = '80px Arial'; ctx.textAlign = 'center';
           ctx.fillText(state.poseTarget === 'rock' ? '✊' : state.poseTarget === 'paper' ? '🖐' : '✌️', width/2, height/2);
@@ -419,7 +430,6 @@
           let ent = state.entities[i];
           let remove = false;
 
-          // 일시정지가 아닐 때만 이동
           if (!isPaused) {
             if (selectedMode === 1 || selectedMode === 3) ent.y += ent.speed;
             if (selectedMode === 5) { ent.x += ent.vx; ent.y += ent.vy; ent.vy += 0.1; }
@@ -427,12 +437,10 @@
             if (ent.y > height + 50 || ent.x < -50 || ent.x > width + 50) remove = true;
           }
 
-          // 렌더링은 항상 수행
           ctx.beginPath(); ctx.arc(ent.x, ent.y, ent.radius, 0, Math.PI * 2);
           ctx.fillStyle = ent.color || '#fff'; ctx.shadowBlur = 15; ctx.shadowColor = ent.color || '#fff';
           ctx.fill(); ctx.shadowBlur = 0;
 
-          // 충돌 판정도 일시정지가 아닐 때만
           if (!isPaused && handData) {
             if (selectedMode === 0 && handData.isFist && getDistance(ent, handData.center) < ent.radius + 30) {
               remove = true; state.scoreAcc += 10; createParticles(ent.x, ent.y, ent.color);
@@ -463,17 +471,15 @@
           state.scoreAcc += 30; state.poseTimer = 0; createParticles(handData.center.x, handData.center.y, '#22d3ee');
         }
 
-        // 스코어 업데이트
         if (!isPaused && Math.floor(state.scoreAcc) > score) {
           score = Math.floor(state.scoreAcc);
           ui.score.innerText = score;
         }
       }
 
-      // 파티클 렌더링
       for (let i = state.particles.length - 1; i >= 0; i--) {
         let p = state.particles[i];
-        if (!isPaused) { p.x += p.vx; p.y += p.vy; p.life--; } // 일시정지 아닐 때만 생명력, 이동 업데이트
+        if (!isPaused) { p.x += p.vx; p.y += p.vy; p.life--; } 
         ctx.globalAlpha = p.life / 20; ctx.fillStyle = p.color; ctx.fillRect(p.x, p.y, 4, 4);
         if (!isPaused && p.life <= 0) state.particles.splice(i, 1);
       }
@@ -483,19 +489,20 @@
     // --- [6] MediaPipe 초기화 ---
     function initVisionModel() {
       if (!window.Hands || !window.Camera) {
-        setTimeout(initVisionModel, 500); // 라이브러리 로드 대기
+        setTimeout(initVisionModel, 500); 
         return;
       }
 
       const hands = new window.Hands({
-        locateFile: (file) => `https://unpkg.com/@mediapipe/hands/${file}`
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
       });
 
+      // [CRITICAL FIX] 모바일 최적화를 위해 modelComplexity를 0(Lite)로 낮춤
       hands.setOptions({
         maxNumHands: 2,
-        modelComplexity: 1,
-        minDetectionConfidence: 0.6,
-        minTrackingConfidence: 0.6
+        modelComplexity: 0, // 1에서 0으로 하향 조정하여 모바일 호환성/속도 극대화
+        minDetectionConfidence: 0.5,
+        minTrackingConfidence: 0.5
       });
 
       hands.onResults((results) => {
@@ -520,16 +527,35 @@
         }
       });
 
+      // [CRITICAL FIX] 모바일 세로/가로 자동 대응을 위해 width/height 강제 고정 제거, 전면 카메라 명시
       const camera = new window.Camera(ui.video, {
-        onFrame: async () => { await hands.send({ image: ui.video }); },
-        width: 640, height: 480
+        onFrame: async () => { 
+          try {
+            await hands.send({ image: ui.video }); 
+          } catch(e) {
+            console.error("Frame parsing error:", e);
+          }
+        },
+        facingMode: 'user' // width: 640, height: 480 제거 (비율 찌그러짐 방지)
       });
 
       camera.start().then(() => {
         document.getElementById('loading-indicator').classList.add('hidden-screen');
         document.getElementById('btn-play').classList.remove('hidden-screen');
       }).catch(err => {
-        document.getElementById('loading-indicator').innerHTML = `<span class="text-red-500">카메라 권한을 확인해주세요.</span>`;
+        document.getElementById('loading-indicator').innerHTML = `
+          <div class="text-red-400 text-center flex flex-col items-center space-y-3 bg-neutral-900/80 p-6 rounded-xl border border-red-500/50">
+            <span class="text-xl font-bold">⚠️ 카메라 접근 차단됨</span>
+            <span class="text-sm text-neutral-300 leading-relaxed">
+              보안 정책으로 인해 현재 환경에서 카메라를 켤 수 없습니다.<br/>
+              (카카오톡 인앱 브라우저 또는 로컬 파일 실행)
+            </span>
+            <div class="text-sm text-cyan-300 mt-2 bg-cyan-900/30 px-4 py-3 rounded-lg border border-cyan-800">
+              <b>해결 방법:</b><br/>
+              1. 파일을 Vercel, GitHub 등 <b>HTTPS 서버에 호스팅</b> 해주세요.<br/>
+              2. 우측 상단 메뉴(⋮)에서 <b>'다른 브라우저로 열기(Chrome/Safari)'</b>를 선택해 주세요.
+            </div>
+          </div>`;
       });
     }
 
